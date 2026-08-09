@@ -195,6 +195,36 @@ async def test_accumulate_true_appends_summary_row_with_averaged_score():
 
 
 @pytest.mark.asyncio
+async def test_accumulate_true_with_max_turns_exhaustion_uses_executed_turn_count():
+    # Regression test: the loop here exits because `turn < case.max_turns`
+    # goes false (max_turns exhaustion), not via an explicit `break` (driver
+    # stop or turn_inputs exhaustion). This exit path previously miscounted
+    # `total_turns` as `case.max_turns + 1` instead of the actual number of
+    # turns executed (`case.max_turns`), silently corrupting the averaged
+    # accumulator score.
+    driver = AlwaysContinueDriver()
+    scorer = SequenceScorer(values=[1.0, 1.0, 1.0])
+    case = _make_case(driver=driver, max_turns=3, scorer=scorer, accumulate=True)
+    adapter = MockAdapter(response_fn=lambda messages: "ok")
+    runner = ConversationRunner(adapter=adapter)
+
+    result = await runner.run("max-turns-accumulate-set", [case])
+
+    # 3 per-turn rows (iteration 0, 1, 2) + 1 summary row (iteration -1).
+    assert len(result.case_results) == 4
+    turn_rows = [cr for cr in result.case_results if cr.iteration != -1]
+    assert len(turn_rows) == 3
+
+    summary_rows = [cr for cr in result.case_results if cr.iteration == -1]
+    assert len(summary_rows) == 1
+    summary = summary_rows[0]
+
+    assert summary.actual == "Final accumulated score across 3 turns."
+    assert summary.score.value == pytest.approx(1.0)
+    assert summary.passed is True
+
+
+@pytest.mark.asyncio
 async def test_no_accumulate_no_accumulator_no_summary_row():
     case = _make_case(turn_inputs=["second"], max_turns=10, scorer=MockScorer())
     adapter = MockAdapter(response_fn=lambda messages: "match")

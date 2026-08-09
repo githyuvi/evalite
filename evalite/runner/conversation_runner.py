@@ -151,7 +151,17 @@ class ConversationRunner:
                 turn_input = next_message
                 turn += 1
 
-            total_turns = turn + 1  # turns are 0-indexed
+            # `turn` is only reliable as "index of the last executed turn"
+            # when the loop exits via an explicit `break` (driver says
+            # stop, or `turn_inputs` exhausted). When the loop instead
+            # exits because `turn < case.max_turns` goes false, the final
+            # iteration's body — including `turn += 1` — already ran to
+            # completion before the condition was re-checked, so `turn`
+            # has been incremented past the last executed turn. Using
+            # `len(case_results)` sidesteps this: it holds exactly one
+            # entry per turn executed so far (the summary row, if any, is
+            # appended below), so it's correct across all three exit paths.
+            total_turns = len(case_results)
 
             if accumulator is not None:
                 final_score = accumulator.finalize(acc_state, total_turns)

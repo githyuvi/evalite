@@ -1,0 +1,114 @@
+"""Test set execution engine.
+
+`Runner` drives a `TestSet` through an `AgentAdapter`, scores each response
+with a `Scorer`, and aggregates the results into a `RunResult`.
+
+Per ADR-002, concurrency is bounded with a single `asyncio.Semaphore`
+created once in `__init__` and shared across the entire run. Every
+case/iteration unit in the test set is scheduled as a coroutine and
+gathered together, so `max_workers` bounds the number of concurrent
+`adapter.send` calls across the whole test set at any point in time —
+not per test case.
+"""
+
+import asyncio
+import time
+
+from evalite.agent.protocol import AgentAdapter
+from evalite.runner.result import CaseResult, RunResult
+from evalite.scorer.base import Scorer
+from evalite.testcase.models import TestCase, TestSet
+
+
+class Runner:
+    """Executes a `TestSet` against an `AgentAdapter` with bounded concurrency."""
+
+    def __init__(
+        self,
+        adapter: AgentAdapter,
+        scorer: Scorer,
+        max_workers: int = 10,
+    ) -> None:
+        """
+        Args:
+            adapter: the agent under test. Must satisfy the `AgentAdapter`
+                Protocol (validated eagerly via `isinstance`, since the
+                Protocol is `runtime_checkable`).
+            scorer: scores each agent response against the case's expected
+                output. Not validated with `isinstance` — `Scorer` is not
+                `runtime_checkable` (see `evalite/scorer/base.py`).
+            max_workers: maximum number of `adapter.send` calls in flight
+                at once, across the entire run.
+
+        Raises:
+            ValueError: if `adapter` does not implement `AgentAdapter`.
+        """
+        if not isinstance(adapter, AgentAdapter):
+            raise ValueError(
+                "adapter must implement AgentAdapter Protocol — missing async send(messages) method"
+            )
+
+        self._adapter = adapter
+        self._scorer = scorer
+        self._max_workers = max_workers
+        self._semaphore = asyncio.Semaphore(max_workers)
+
+    async def _run_case_iteration(self, case: TestCase, iteration: int) -> CaseResult:
+        """Run a single (case, iteration) unit: send, time, score, wrap result."""
+        messages = [{"role": "user", "content": case.input}]
+
+        async with self._semaphore:
+            start = time.perf_counter()
+            response = await self._adapter.send(messages)
+            duration_ms = (time.perf_counter() - start) * 1000
+
+        score = await self._scorer.score(case.input, case.expected.model_dump(), response)
+
+        return CaseResult(
+            case_id=case.id,
+            iteration=iteration,
+            input=case.input,
+            actual=response.content,
+            score=score,
+            passed=score.passed,
+            duration_ms=duration_ms,
+        )
+
+    async def run(self, test_set: TestSet) -> RunResult:
+        """Run every case (and iteration) in `test_set`, scoring each response.
+
+        All case/iteration units are scheduled concurrently via
+        `asyncio.gather`, bounded by the shared semaphore from `__init__`.
+
+        Args:
+            test_set: the test cases to run.
+
+        Returns:
+            A `RunResult` aggregating pass/fail counts and per-case results.
+        """
+        start = time.perf_counter()
+
+        tasks = [
+            self._run_case_iteration(case, iteration)
+            for case in test_set.cases
+            for iteration in range(case.iterations)
+        ]
+
+        case_results = await asyncio.gather(*tasks) if tasks else []
+
+        total = len(case_results)
+        passed = sum(1 for result in case_results if result.passed)
+        failed = total - passed
+        pass_rate = passed / total if total > 0 else 0.0
+
+        duration_ms = (time.perf_counter() - start) * 1000
+
+        return RunResult(
+            test_set_name=test_set.name,
+            total=total,
+            passed=passed,
+            failed=failed,
+            pass_rate=pass_rate,
+            case_results=list(case_results),
+            duration_ms=duration_ms,
+        )

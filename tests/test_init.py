@@ -5,6 +5,12 @@ def test_public_api_imports():
         Runner, Score, CaseResult, RunResult,
         Scorer, DefaultScorer,
         ConsoleReporter,
+        LLMProvider, OpenAIProvider, AnthropicProvider, AzureOpenAIProvider, OllamaProvider,
+        Category, DEFAULT_CATEGORIES, Extractor, LLMExtractor, PatternExtractor,
+        Judge, LLMJudge, RuleJudge, Accumulator, DefaultAccumulator, PipelineScorer,
+        RegexScorer, JsonPathScorer, ToolCallScorer, SemanticSimilarityScorer,
+        ConversationTestCase, ConversationDriver,
+        ConversationRunner,
     )
     import evalite
     assert set(evalite.__all__) == {
@@ -13,4 +19,10 @@ def test_public_api_imports():
         "Runner", "Score", "CaseResult", "RunResult",
         "Scorer", "DefaultScorer",
         "ConsoleReporter",
+        "LLMProvider", "OpenAIProvider", "AnthropicProvider", "AzureOpenAIProvider", "OllamaProvider",
+        "Category", "DEFAULT_CATEGORIES", "Extractor", "LLMExtractor", "PatternExtractor",
+        "Judge", "LLMJudge", "RuleJudge", "Accumulator", "DefaultAccumulator", "PipelineScorer",
+        "RegexScorer", "JsonPathScorer", "ToolCallScorer", "SemanticSimilarityScorer",
+        "ConversationTestCase", "ConversationDriver",
+        "ConversationRunner",
     }

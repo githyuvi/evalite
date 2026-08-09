@@ -22,8 +22,15 @@ from evalite.reporter.console import ConsoleReporter
 from evalite.runner.result import RunResult
 from evalite.runner.runner import Runner
 from evalite.scorer.default import DefaultScorer
-from evalite.storage.sqlite import SqliteStorage
 from evalite.testcase.loader import load_test_set
+
+# NOTE: `evalite.storage.sqlite.SqliteStorage` is deliberately NOT imported
+# at module level here. `evalite`'s core install (no `[storage]` extra)
+# must not require `sqlalchemy`/`aiosqlite` — mirroring the same principle
+# already followed in `evalite/__init__.py`. Each command below that
+# actually touches storage (`run --db`, `db migrate`, `results`) imports
+# `SqliteStorage` locally, so a plain `evalite --help` or a no-`--db`
+# `evalite run` never triggers that import.
 
 app = typer.Typer()
 db_app = typer.Typer()
@@ -159,9 +166,13 @@ def run(
 
     scorer = DefaultScorer()
 
-    storage: SqliteStorage | None = None
+    storage: "SqliteStorage | None" = None
     if db is not None:
-        storage = SqliteStorage(db_path=_parse_db_url(db))
+        db_path = _parse_db_url(db)
+
+        from evalite.storage.sqlite import SqliteStorage
+
+        storage = SqliteStorage(db_path=db_path)
 
     runner = Runner(adapter=adapter, scorer=scorer, max_workers=max_workers, storage=storage)
 
@@ -210,6 +221,9 @@ def db_migrate(
     well as a real migration would at this stage.
     """
     db_path = _parse_db_url(db)
+
+    from evalite.storage.sqlite import SqliteStorage
+
     storage = SqliteStorage(db_path=db_path)
 
     try:
@@ -236,6 +250,9 @@ def results(
 ) -> None:
     """List recently persisted runs, or show full detail for one run."""
     db_path = _parse_db_url(db)
+
+    from evalite.storage.sqlite import SqliteStorage
+
     storage = SqliteStorage(db_path=db_path)
 
     if run_id is not None:

@@ -1,0 +1,16 @@
+name: booking_agent_v1
+cases:
+  - id: happy_path_001
+    input: "Book a meeting room for tomorrow at 3pm"
+    expected:
+      task_completed: "true"
+      confirmation: "sent"
+    tags: [happy_path, booking]
+    iterations: 3
+
+  - id: edge_no_availability
+    input: "Book a room for 8am tomorrow"
+    expected:
+      error_handled: "true"
+    tags: [edge_case]
+    iterations: 1

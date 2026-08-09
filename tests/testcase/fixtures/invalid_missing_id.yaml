@@ -1,0 +1,5 @@
+name: broken_set
+cases:
+  - input: "Some input with no id"
+    expected:
+      status: "ok"

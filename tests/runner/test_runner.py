@@ -44,6 +44,29 @@ class ConcurrencyTrackingAdapter:
         return AgentResponse(content="ok")
 
 
+class FastAdapter:
+    """Fake AgentAdapter that returns immediately (no sleep) — isolates the
+    concurrency bound to the scorer for the scorer-concurrency test below."""
+
+    async def send(self, messages: list[dict]) -> AgentResponse:
+        return AgentResponse(content="ok")
+
+
+class ConcurrencyTrackingScorer:
+    """Fake Scorer that tracks the max number of concurrent in-flight score() calls."""
+
+    def __init__(self) -> None:
+        self.current = 0
+        self.max_seen = 0
+
+    async def score(self, input: str, expected: dict, actual: AgentResponse) -> Score:
+        self.current += 1
+        self.max_seen = max(self.max_seen, self.current)
+        await asyncio.sleep(0.02)
+        self.current -= 1
+        return Score(passed=True, value=1.0, reasoning="mock scorer")
+
+
 def _make_case(case_id: str, expected_value: str, iterations: int = 1) -> TestCase:
     return TestCase(
         id=case_id,
@@ -96,6 +119,28 @@ async def test_concurrency_bounded_by_max_workers():
     assert adapter.max_seen <= max_workers
     # Sanity check that concurrency was actually exercised (not fully sequential).
     assert adapter.max_seen > 1
+
+
+@pytest.mark.asyncio
+async def test_concurrency_bounded_by_max_workers_for_scorer_too():
+    # Proves the semaphore bounds scorer.score() calls too, not just
+    # adapter.send() — e.g. a future LLM-judge scorer that does I/O.
+    # Adapter is fast (no sleep) so any concurrency observed is coming
+    # from the scorer being held inside the semaphore block.
+    num_cases = 20
+    cases = [_make_case(f"case-{i}", "irrelevant") for i in range(num_cases)]
+    adapter = FastAdapter()
+    scorer = ConcurrencyTrackingScorer()
+    max_workers = 5
+    runner = Runner(adapter=adapter, scorer=scorer, max_workers=max_workers)
+
+    test_set = TestSet(name="scorer-concurrency-test", cases=cases)
+    result = await runner.run(test_set)
+
+    assert result.total == num_cases
+    assert scorer.max_seen <= max_workers
+    # Sanity check that concurrency was actually exercised (not fully sequential).
+    assert scorer.max_seen > 1
 
 
 def test_adapter_validation_raises_at_init_time():

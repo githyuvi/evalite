@@ -7,8 +7,8 @@ Per ADR-002, concurrency is bounded with a single `asyncio.Semaphore`
 created once in `__init__` and shared across the entire run. Every
 case/iteration unit in the test set is scheduled as a coroutine and
 gathered together, so `max_workers` bounds the number of concurrent
-`adapter.send` calls across the whole test set at any point in time —
-not per test case.
+`adapter.send` + `scorer.score` calls (per case/iteration unit) across
+the whole test set at any point in time — not per test case.
 """
 
 import asyncio
@@ -39,8 +39,10 @@ class Runner:
             scorer: scores each agent response against the case's expected
                 output. Not validated with `isinstance` — `Scorer` is not
                 `runtime_checkable` (see `evalite/scorer/base.py`).
-            max_workers: maximum number of `adapter.send` calls in flight
-                at once, across the entire run.
+            max_workers: maximum number of case/iteration units in flight
+                at once, across the entire run — bounds `adapter.send`
+                and `scorer.score` together, since both run inside the
+                same semaphore-held block.
             storage: optional `StorageBackend` to persist the `RunResult`
                 to after each run (see `evalite/storage/base.py`). Storage
                 is opt-in per ADR-003 — when `None` (the default), `run`
@@ -70,7 +72,7 @@ class Runner:
             response = await self._adapter.send(messages)
             duration_ms = (time.perf_counter() - start) * 1000
 
-        score = await self._scorer.score(case.input, case.expected.model_dump(), response)
+            score = await self._scorer.score(case.input, case.expected.model_dump(), response)
 
         return CaseResult(
             case_id=case.id,

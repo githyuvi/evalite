@@ -32,6 +32,9 @@ class DefaultScorer:
             if isinstance(obj, dict):
                 for value in obj.values():
                     _recurse(value)
+            elif isinstance(obj, (list, tuple)):
+                for item in obj:
+                    _recurse(item)
             else:
                 flattened.append(str(obj))
 

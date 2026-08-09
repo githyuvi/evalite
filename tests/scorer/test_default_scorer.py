@@ -176,6 +176,30 @@ async def test_special_characters_in_expected(scorer):
     assert score.value == 1.0
 
 
+async def test_list_values_in_expected(scorer):
+    """List values in expected dict are flattened element-wise, not stringified as a whole."""
+    actual = AgentResponse(content="Ticket marked urgent and flagged vip")
+    expected = {"tags": ["urgent", "vip"]}
+
+    score = await scorer.score(input="test", expected=expected, actual=actual)
+
+    assert score.passed is True
+    assert score.value == 1.0
+    assert "2/2 expected values found" in score.reasoning
+
+
+async def test_list_values_partial_match(scorer):
+    """List-sourced values are counted correctly alongside other values on partial match."""
+    actual = AgentResponse(content="Ticket marked urgent")
+    expected = {"tags": ["urgent", "vip"], "status": "closed"}
+
+    score = await scorer.score(input="test", expected=expected, actual=actual)
+
+    assert score.passed is False
+    assert score.value == pytest.approx(1 / 3)
+    assert "1/3 expected values found" in score.reasoning
+
+
 async def test_input_parameter_unused(scorer):
     """The input parameter is provided but not used by the scorer."""
     actual = AgentResponse(content="found it")

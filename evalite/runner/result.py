@@ -30,7 +30,9 @@ class CaseResult(BaseModel):
 
     case_id: identifier of the test case this result belongs to.
     iteration: which repetition of the case this is (for cases run
-        multiple times, e.g. to measure flakiness).
+        multiple times, e.g. to measure flakiness). 0-indexed: a case
+        run with `iterations: 3` produces `CaseResult`s with `iteration`
+        values 0, 1, 2.
     input: the input given to the agent for this case.
     actual: the agent's actual response/output.
     score: the `Score` produced by the scorer for this case.

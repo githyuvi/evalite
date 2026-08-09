@@ -17,6 +17,7 @@ build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+python_classes = ["NoMatchForAnyClass_*"]
 
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29"]

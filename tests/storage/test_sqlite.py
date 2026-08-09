@@ -170,3 +170,22 @@ async def test_prefix_isolation_across_shared_db_file(tmp_path):
     # Cross-check: each storage can only fetch its own run via get_run.
     assert await storage_default.get_run(team_a_run_id) is None
     assert await storage_team_a.get_run(default_run_id) is None
+
+
+async def test_double_init_is_idempotent(tmp_path):
+    """Calling `init()` twice against the same db file doesn't raise, and
+    the storage remains fully functional afterward."""
+    db_path = str(tmp_path / "test.db")
+    storage = SqliteStorage(db_path=db_path)
+
+    await storage.init()
+    await storage.init()
+
+    original = _make_run_result()
+    run_id = await storage.save_run(original)
+
+    retrieved = await storage.get_run(run_id)
+
+    assert retrieved is not None
+    assert retrieved.test_set_name == original.test_set_name
+    assert retrieved.case_results == original.case_results

@@ -3,6 +3,7 @@
 from .category import DEFAULT_CATEGORIES, Category
 from .extractor import Extractor, LLMExtractor, PatternExtractor
 from .judge import Judge, LLMJudge, RuleJudge
+from .scorer import PipelineScorer
 
 __all__ = [
     "Category",
@@ -13,4 +14,5 @@ __all__ = [
     "Judge",
     "LLMJudge",
     "RuleJudge",
+    "PipelineScorer",
 ]

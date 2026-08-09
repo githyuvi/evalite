@@ -4,21 +4,30 @@
 dynamically from a dotted import path or a standalone .py file), the
 `Runner`, and the `ConsoleReporter` into a single end-to-end command
 suitable for local use and CI.
+
+`evalite db migrate` and `evalite results` (Phase 2) add storage-backed
+commands on top of `SqliteStorage`: preparing a database file's schema,
+and listing/inspecting previously persisted runs.
 """
 
 import asyncio
 import importlib
 import importlib.util
+import json
 
 import typer
 
 from evalite.agent.protocol import AgentAdapter
 from evalite.reporter.console import ConsoleReporter
+from evalite.runner.result import RunResult
 from evalite.runner.runner import Runner
 from evalite.scorer.default import DefaultScorer
+from evalite.storage.sqlite import SqliteStorage
 from evalite.testcase.loader import load_test_set
 
 app = typer.Typer()
+db_app = typer.Typer()
+app.add_typer(db_app, name="db")
 
 
 @app.callback()
@@ -90,6 +99,33 @@ def load_adapter(agent: str) -> AgentAdapter:
     return instance
 
 
+def _parse_db_url(db: str) -> str:
+    """Extract a filesystem path from a `sqlite:///` connection string.
+
+    Only SQLite URLs are supported by the CLI's `--db` option in this
+    phase (per the Phase 2 plan's `--db sqlite:///evalite.db` example) —
+    arbitrary SQLAlchemy URLs (e.g. postgres://...) are out of scope
+    here, even though `StorageBackend` itself is backend-agnostic.
+
+    On an unsupported scheme, an error is printed to stderr and the
+    process exits with code 1.
+
+    Args:
+        db: a connection string of the form `sqlite:///<path>`.
+
+    Returns:
+        The raw filesystem path to the SQLite database file.
+    """
+    prefix = "sqlite:///"
+    if not db.startswith(prefix):
+        typer.echo(
+            f"Error: unsupported --db value '{db}' — only sqlite:/// URLs are supported",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    return db[len(prefix) :]
+
+
 @app.command()
 def run(
     test_set: str = typer.Argument(..., help="Path to YAML test set file"),
@@ -103,6 +139,14 @@ def run(
     ),
     max_workers: int = typer.Option(10, "--max-workers", help="Max concurrent agent calls"),
     output: str = typer.Option("table", "--output", help="Output format: table or json"),
+    db: str | None = typer.Option(
+        None,
+        "--db",
+        help=(
+            "SQLite connection string, e.g. sqlite:///evalite.db. "
+            "If provided, persists the run."
+        ),
+    ),
 ) -> None:
     """Run a test set against an agent and report results."""
     try:
@@ -114,10 +158,113 @@ def run(
     adapter = load_adapter(agent)
 
     scorer = DefaultScorer()
-    runner = Runner(adapter=adapter, scorer=scorer, max_workers=max_workers)
-    result = asyncio.run(runner.run(test_set_obj))
+
+    storage: SqliteStorage | None = None
+    if db is not None:
+        storage = SqliteStorage(db_path=_parse_db_url(db))
+
+    runner = Runner(adapter=adapter, scorer=scorer, max_workers=max_workers, storage=storage)
+
+    async def _run_with_storage() -> RunResult:
+        """Initialize storage (if configured) and run the test set.
+
+        Wrapped in a single coroutine so the CLI makes exactly one
+        `asyncio.run()` call, rather than one for `storage.init()` and a
+        separate one for `runner.run()`.
+        """
+        if storage is not None:
+            await storage.init()
+        return await runner.run(test_set_obj)
+
+    result = asyncio.run(_run_with_storage())
     ConsoleReporter().report(result, fmt=output)
     raise typer.Exit(code=0 if result.failed == 0 else 1)
+
+
+@db_app.command("migrate")
+def db_migrate(
+    db: str = typer.Option(
+        "sqlite:///evalite.db",
+        "--db",
+        help="SQLite connection string to prepare, e.g. sqlite:///evalite.db",
+    ),
+) -> None:
+    """Prepare a database file's schema for use by evalite storage.
+
+    NOTE: this does not (yet) run real Alembic migrations. `alembic.ini`'s
+    `script_location = evalite/storage/migrations` is a path relative to
+    the evalite project root, and neither `alembic.ini` nor a real
+    `alembic` subprocess invocation is packaged/guaranteed to work from
+    an arbitrary user's CWD after `pip install evalite` — only from
+    inside a checkout of this repo. There are also no real version
+    scripts under `evalite/storage/migrations/versions/` yet (just
+    `.gitkeep`), so `alembic upgrade head` would currently be a no-op
+    even if invoked correctly. Closing this gap for real (bundling
+    migrations as package data, or driving them via
+    `alembic.command.upgrade` with a `Config` pointed at the installed
+    package's migrations directory) is left to a later phase.
+
+    For now, this command instead calls `SqliteStorage.init()`
+    (`Base.metadata.create_all`), which satisfies Phase 2's actual
+    done-criterion — creating tables on a fresh SQLite file — just as
+    well as a real migration would at this stage.
+    """
+    db_path = _parse_db_url(db)
+    storage = SqliteStorage(db_path=db_path)
+
+    try:
+        asyncio.run(storage.init())
+    except Exception as e:
+        typer.echo(f"Error: migration failed: {e}", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Database ready at {db_path}")
+
+
+@app.command()
+def results(
+    db: str = typer.Option(
+        "sqlite:///evalite.db",
+        "--db",
+        help="SQLite connection string to read from, e.g. sqlite:///evalite.db",
+    ),
+    run_id: str | None = typer.Option(
+        None, "--run-id", help="Show the full case-level breakdown for a specific run"
+    ),
+    limit: int = typer.Option(20, "--limit", help="Max number of recent runs to list"),
+    output: str = typer.Option("table", "--output", help="Output format: table or json"),
+) -> None:
+    """List recently persisted runs, or show full detail for one run."""
+    db_path = _parse_db_url(db)
+    storage = SqliteStorage(db_path=db_path)
+
+    if run_id is not None:
+        run_result = asyncio.run(storage.get_run(run_id))
+        if run_result is None:
+            typer.echo(f"Error: run '{run_id}' not found", err=True)
+            raise typer.Exit(code=1)
+        ConsoleReporter().report(run_result, fmt=output)
+        return
+
+    runs = asyncio.run(storage.list_runs(limit=limit))
+
+    if output == "json":
+        print(json.dumps(runs, indent=2))
+        return
+
+    if not runs:
+        typer.echo("No runs found")
+        return
+
+    header = f"{'run_id':<38} {'test_set_name':<20} {'passed':<7} {'failed':<7} {'timestamp':<26}"
+    print(header)
+    print("-" * len(header))
+    for run_entry in runs:
+        row = (
+            f"{run_entry['run_id']:<38} {run_entry['test_set_name']:<20} "
+            f"{run_entry['passed']:<7} {run_entry['failed']:<7} {run_entry['timestamp']:<26}"
+        )
+        print(row)
 
 
 if __name__ == "__main__":

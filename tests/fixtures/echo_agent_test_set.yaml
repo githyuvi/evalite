@@ -1,0 +1,8 @@
+name: echo_agent_smoke_test
+cases:
+  - id: smoke_001
+    input: "the answer is 42"
+    expected:
+      contains: "42"
+    tags: [smoke]
+    iterations: 1

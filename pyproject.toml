@@ -20,5 +20,5 @@ asyncio_mode = "auto"
 
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29"]
-storage = ["aiosqlite>=0.20", "sqlalchemy>=2.0", "alembic>=1.13"]
-dev = ["pytest", "pytest-asyncio", "pytest-cov", "aiosqlite>=0.20", "sqlalchemy>=2.0"]
+storage = ["aiosqlite>=0.20", "sqlalchemy[asyncio]>=2.0", "alembic>=1.13"]
+dev = ["pytest", "pytest-asyncio", "pytest-cov", "aiosqlite>=0.20", "sqlalchemy[asyncio]>=2.0"]

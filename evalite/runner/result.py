@@ -60,6 +60,9 @@ class RunResult(BaseModel):
         caller (e.g. the runner) rather than derived automatically.
     case_results: the individual `CaseResult` for each case run.
     duration_ms: total duration of the run, in milliseconds.
+    run_id: id assigned by a `StorageBackend` when this run was persisted
+        (see `evalite/storage/base.py`). `None` if the run was not
+        persisted (no storage configured on the `Runner`).
     """
 
     test_set_name: str
@@ -69,3 +72,4 @@ class RunResult(BaseModel):
     pass_rate: float = Field(ge=0.0, le=1.0)
     case_results: list[CaseResult]
     duration_ms: float
+    run_id: str | None = None

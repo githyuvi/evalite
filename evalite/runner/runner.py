@@ -17,6 +17,7 @@ import time
 from evalite.agent.protocol import AgentAdapter
 from evalite.runner.result import CaseResult, RunResult
 from evalite.scorer.base import Scorer
+from evalite.storage.base import StorageBackend
 from evalite.testcase.models import TestCase, TestSet
 
 
@@ -28,6 +29,7 @@ class Runner:
         adapter: AgentAdapter,
         scorer: Scorer,
         max_workers: int = 10,
+        storage: StorageBackend | None = None,
     ) -> None:
         """
         Args:
@@ -39,6 +41,11 @@ class Runner:
                 `runtime_checkable` (see `evalite/scorer/base.py`).
             max_workers: maximum number of `adapter.send` calls in flight
                 at once, across the entire run.
+            storage: optional `StorageBackend` to persist the `RunResult`
+                to after each run (see `evalite/storage/base.py`). Storage
+                is opt-in per ADR-003 — when `None` (the default), `run`
+                behaves exactly as it did in Phase 1: no persistence, and
+                `RunResult.run_id` stays `None`.
 
         Raises:
             ValueError: if `adapter` does not implement `AgentAdapter`.
@@ -52,6 +59,7 @@ class Runner:
         self._scorer = scorer
         self._max_workers = max_workers
         self._semaphore = asyncio.Semaphore(max_workers)
+        self._storage = storage
 
     async def _run_case_iteration(self, case: TestCase, iteration: int) -> CaseResult:
         """Run a single (case, iteration) unit: send, time, score, wrap result."""
@@ -85,6 +93,10 @@ class Runner:
 
         Returns:
             A `RunResult` aggregating pass/fail counts and per-case results.
+            If a `StorageBackend` was configured in `__init__`, the run is
+            persisted via `storage.save_run` before returning, and the
+            returned `RunResult.run_id` is set to the id it was stored
+            under; otherwise `run_id` stays `None`.
         """
         start = time.perf_counter()
 
@@ -103,7 +115,7 @@ class Runner:
 
         duration_ms = (time.perf_counter() - start) * 1000
 
-        return RunResult(
+        result = RunResult(
             test_set_name=test_set.name,
             total=total,
             passed=passed,
@@ -112,3 +124,9 @@ class Runner:
             case_results=list(case_results),
             duration_ms=duration_ms,
         )
+
+        if self._storage is not None:
+            run_id = await self._storage.save_run(result)
+            result.run_id = run_id
+
+        return result

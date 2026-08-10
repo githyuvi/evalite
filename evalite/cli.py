@@ -14,6 +14,7 @@ import asyncio
 import importlib
 import importlib.util
 import json
+import os
 
 import typer
 
@@ -190,6 +191,81 @@ def run(
     result = asyncio.run(_run_with_storage())
     ConsoleReporter().report(result, fmt=output)
     raise typer.Exit(code=0 if result.failed == 0 else 1)
+
+
+@app.command()
+def serve(
+    db: str = typer.Option(
+        "sqlite:///evalite.db",
+        "--db",
+        help=(
+            "Connection string for the storage backend: sqlite:///path.db, "
+            "or postgresql+asyncpg://user:pass@host/dbname for PostgreSQL."
+        ),
+    ),
+    host: str = typer.Option("0.0.0.0", "--host", help="Host to bind the server to"),
+    port: int = typer.Option(8000, "--port", help="Port to bind the server to"),
+    reload: bool = typer.Option(
+        False,
+        "--reload",
+        help="Enable uvicorn auto-reload (development only; not supported here, see NOTE below)",
+    ),
+) -> None:
+    """Start the evalite API server (evalite[server] extra required).
+
+    Requires the `EVALITE_API_KEY` environment variable to be set — the
+    server refuses to start otherwise (rule 15's "fail loud" requirement;
+    the per-request 401 check in `evalite.server.auth.require_api_key`
+    is a separate, request-time enforcement of the same rule).
+
+    NOTE on --reload: uvicorn's auto-reload mechanism re-imports a fixed
+    "module:app" string in a subprocess, which requires a module-level
+    `app` object built without CLI arguments. This command instead
+    builds the app dynamically from `--db` via `create_app(storage)`, so
+    there is no such fixed import target — passing --reload prints a
+    warning and is otherwise ignored rather than silently doing nothing
+    unexplained.
+    """
+    if not os.environ.get("EVALITE_API_KEY"):
+        typer.echo(
+            "Error: EVALITE_API_KEY environment variable must be set to start the server",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        import uvicorn
+
+        from evalite.server.app import create_app
+    except ImportError:
+        typer.echo(
+            "Error: the API server requires the [server] extra — "
+            "install with: pip install evalite[server]",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    if db.startswith("postgresql"):
+        from evalite.storage.postgres import PostgresStorage
+
+        storage = PostgresStorage(url=db)
+    else:
+        from evalite.storage.sqlite import SqliteStorage
+
+        db_path = _parse_db_url(db)
+        storage = SqliteStorage(db_path=db_path)
+
+    asyncio.run(storage.init())
+
+    if reload:
+        typer.echo(
+            "Warning: --reload is not supported when serving a dynamically "
+            "constructed app (see `evalite serve --help`) — starting without it",
+            err=True,
+        )
+
+    fastapi_app = create_app(storage)
+    uvicorn.run(fastapi_app, host=host, port=port)
 
 
 @db_app.command("migrate")

@@ -76,3 +76,16 @@ def test_ws_wrong_api_key_closes_with_4401(test_client: TestClient) -> None:
             ws.receive_json()
 
     assert exc_info.value.code == UNAUTHORIZED_CLOSE_CODE
+
+
+def test_ws_unset_env_var_closes_with_4401_regardless_of_key(test_client: TestClient, monkeypatch) -> None:
+    run_id = _start_run(test_client)
+    monkeypatch.delenv("EVALITE_API_KEY", raising=False)
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with test_client.websocket_connect(
+            f"/ws/v1/runs/{run_id}", headers={"X-API-Key": "anything"}
+        ) as ws:
+            ws.receive_json()
+
+    assert exc_info.value.code == UNAUTHORIZED_CLOSE_CODE

@@ -100,6 +100,46 @@ def test_run_with_bad_agent_class_marks_run_failed(test_client: TestClient) -> N
     assert status == "failed"
 
 
+def test_get_run_and_results_return_422_with_error_for_failed_run(
+    test_client: TestClient,
+) -> None:
+    # Extends test_run_with_bad_agent_class_marks_run_failed: once a run's
+    # registry entry has status="failed" and a real error message, GET
+    # /api/v1/runs/{run_id} and .../results must surface that as a 422
+    # with the error in the body, not a permanent, uninformative 404.
+    resp = test_client.post(
+        "/api/v1/runs",
+        json={
+            "test_set_path": "tests/fixtures/echo_agent_test_set.yaml",
+            "agent_class": "not.a.real.module.Agent",
+        },
+        headers=HEADERS,
+    )
+    run_id = resp.json()["run_id"]
+
+    deadline = time.monotonic() + 5.0
+    entry = None
+    while time.monotonic() < deadline:
+        listing = test_client.get("/api/v1/runs", headers=HEADERS).json()
+        matching = [r for r in listing["runs"] if r["run_id"] == run_id]
+        if matching and matching[0]["status"] == "failed":
+            entry = matching[0]
+            break
+        time.sleep(0.02)
+    assert entry is not None, f"run {run_id} did not fail within 5s"
+
+    error = test_client.app.state.runs[run_id]["error"]
+    assert error is not None
+
+    run_resp = test_client.get(f"/api/v1/runs/{run_id}", headers=HEADERS)
+    assert run_resp.status_code == 422
+    assert run_resp.json()["detail"] == f"Run failed: {error}"
+
+    results_resp = test_client.get(f"/api/v1/runs/{run_id}/results", headers=HEADERS)
+    assert results_resp.status_code == 422
+    assert results_resp.json()["detail"] == f"Run failed: {error}"
+
+
 def test_background_task_is_retained_and_cleaned_up(test_client: TestClient) -> None:
     # Regression test: asyncio.create_task's return value must be kept
     # somewhere with a strong reference (app.state.background_tasks),

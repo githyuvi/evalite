@@ -199,18 +199,38 @@ async def list_runs(request: Request, limit: int = 20, offset: int = 0) -> RunLi
 
 @router.get("/runs/{run_id}")
 async def get_run(run_id: str, request: Request) -> RunResult:
-    """Fetch the full `RunResult` for a completed run."""
+    """Fetch the full `RunResult` for a completed run.
+
+    A `run_id` that is genuinely unknown to this server and a `run_id`
+    that is known but still in flight (no result yet) both 404 as "Run
+    not found" — the client can't distinguish those cases from this
+    endpoint alone, and that ambiguity is out of scope here. A `run_id`
+    that is known but failed gets its own 422 with the recorded error,
+    so a failed run doesn't look identical to an unknown one forever.
+    """
     entry = request.app.state.runs.get(run_id)
-    if entry is None or entry["result"] is None:
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if entry["status"] == "failed":
+        raise HTTPException(status_code=422, detail=f"Run failed: {entry['error']}")
+    if entry["result"] is None:
         raise HTTPException(status_code=404, detail="Run not found")
     return entry["result"]
 
 
 @router.get("/runs/{run_id}/results")
 async def get_run_results(run_id: str, request: Request) -> dict:
-    """Fetch just the case-level results for a completed run."""
+    """Fetch just the case-level results for a completed run.
+
+    See `get_run` for the unknown-vs-in-flight-vs-failed distinction
+    applied identically here.
+    """
     entry = request.app.state.runs.get(run_id)
-    if entry is None or entry["result"] is None:
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if entry["status"] == "failed":
+        raise HTTPException(status_code=422, detail=f"Run failed: {entry['error']}")
+    if entry["result"] is None:
         raise HTTPException(status_code=404, detail="Run not found")
     result: RunResult = entry["result"]
     return {"run_id": run_id, "case_results": [cr.model_dump() for cr in result.case_results]}

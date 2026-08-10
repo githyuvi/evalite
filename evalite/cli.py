@@ -15,6 +15,7 @@ import importlib
 import importlib.util
 import json
 import os
+import webbrowser
 
 import typer
 
@@ -210,6 +211,11 @@ def serve(
         "--reload",
         help="Enable uvicorn auto-reload (development only; not supported here, see NOTE below)",
     ),
+    open_browser: bool = typer.Option(
+        False,
+        "--open",
+        help="Open the dashboard in your default browser after the server starts",
+    ),
 ) -> None:
     """Start the evalite API server (evalite\[server] extra required).
 
@@ -217,6 +223,8 @@ def serve(
     server refuses to start otherwise (rule 15's "fail loud" requirement;
     the per-request 401 check in `evalite.server.auth.require_api_key`
     is a separate, request-time enforcement of the same rule).
+
+    The dashboard UI requires `pip install evalite-ui` to render at the server's URL; without it, the browser will show only the JSON API.
 
     NOTE on --reload: uvicorn's auto-reload mechanism re-imports a fixed
     "module:app" string in a subprocess, which requires a module-level
@@ -265,6 +273,11 @@ def serve(
         )
 
     fastapi_app = create_app(storage)
+
+    if open_browser:
+        url = f"http://127.0.0.1:{port}" if host == "0.0.0.0" else f"http://{host}:{port}"
+        webbrowser.open(url)
+
     uvicorn.run(fastapi_app, host=host, port=port)
 
 

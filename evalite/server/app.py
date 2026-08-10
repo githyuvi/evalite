@@ -9,11 +9,16 @@ the core install (no `[server]` extra) never pulls in FastAPI. See
 storage deps.
 """
 
+import importlib.util
+import logging
+
 from fastapi import FastAPI
 
 from evalite.server.progress import ProgressBus
 from evalite.server.routes import runs, ws
 from evalite.storage.base import StorageBackend
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(storage: StorageBackend) -> FastAPI:
@@ -30,7 +35,10 @@ def create_app(storage: StorageBackend) -> FastAPI:
     Returns:
         A `FastAPI` app with `app.state.storage` / `app.state.progress_bus`
         / `app.state.runs` populated for route handlers to use, and the
-        REST + WebSocket routers registered.
+        REST + WebSocket routers registered. If the separate, optional
+        `evalite_ui` package is installed, its built React dashboard is
+        also mounted at `/` (after the API routers, so it acts as a
+        catch-all and never shadows `/api/v1/...` or `/ws/v1/...`).
 
         API key auth (rule 15) is applied per-router rather than at the
         app level: `routes.runs.router` declares
@@ -58,5 +66,17 @@ def create_app(storage: StorageBackend) -> FastAPI:
 
     app.include_router(runs.router)
     app.include_router(ws.router)
+
+    # `evalite_ui` (the React dashboard) is a separate, optional package —
+    # evalite core must not hard-depend on it, mirroring the lazy-import
+    # principle `evalite/cli.py` applies to fastapi/uvicorn/sqlalchemy.
+    # `find_spec` checks availability without importing it; the actual
+    # import only happens once we know it's installed.
+    if importlib.util.find_spec("evalite_ui") is not None:
+        import evalite_ui.server
+
+        evalite_ui.server.mount_ui(app)
+    else:
+        logger.info("evalite-ui not installed — serving API only")
 
     return app

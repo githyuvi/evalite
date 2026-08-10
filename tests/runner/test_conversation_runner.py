@@ -309,3 +309,41 @@ def test_adapter_validation_raises_at_init_time():
 
     with pytest.raises(ValueError, match="adapter must implement AgentAdapter Protocol"):
         ConversationRunner(adapter=BadAdapter())
+
+
+@pytest.mark.asyncio
+async def test_progress_callback_receives_event_per_turn_and_summary_row():
+    scorer = SequenceScorer(values=[1.0, 0.5])
+    case = _make_case(
+        turn_inputs=["second"], max_turns=10, scorer=scorer, accumulate=True
+    )
+    adapter = MockAdapter(response_fn=lambda messages: "ok")
+    events: list[dict] = []
+
+    async def progress_callback(event: dict) -> None:
+        events.append(event)
+
+    runner = ConversationRunner(adapter=adapter, progress_callback=progress_callback)
+    result = await runner.run("progress-set", [case])
+
+    # 2 turn events + 1 summary event, matching the 3 CaseResults produced.
+    assert len(events) == 3 == len(result.case_results)
+    assert {e["event"] for e in events} == {"case_completed"}
+    assert sorted(e["iteration"] for e in events) == [-1, 0, 1]
+    for event, case_result in zip(
+        sorted(events, key=lambda e: e["iteration"]),
+        sorted(result.case_results, key=lambda cr: cr.iteration),
+    ):
+        assert event["passed"] == case_result.passed
+        assert event["score"] == case_result.score.value
+
+
+@pytest.mark.asyncio
+async def test_no_progress_callback_by_default_does_not_raise():
+    case = _make_case(scorer=MockScorer())
+    adapter = MockAdapter(response_fn=lambda messages: "match")
+    runner = ConversationRunner(adapter=adapter)  # no progress_callback
+
+    result = await runner.run("no-callback-set", [case])
+
+    assert len(result.case_results) == 1

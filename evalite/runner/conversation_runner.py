@@ -19,6 +19,7 @@ slots.
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 
 from evalite.agent.protocol import AgentAdapter
 from evalite.runner.result import CaseResult, RunResult
@@ -31,7 +32,12 @@ class ConversationRunner:
     """Executes a list of `ConversationTestCase`s against an `AgentAdapter`
     with bounded concurrency, one full conversation per semaphore slot."""
 
-    def __init__(self, adapter: AgentAdapter, max_workers: int = 10) -> None:
+    def __init__(
+        self,
+        adapter: AgentAdapter,
+        max_workers: int = 10,
+        progress_callback: Callable[[dict], Awaitable[None]] | None = None,
+    ) -> None:
         """
         Args:
             adapter: the agent under test. Must satisfy the `AgentAdapter`
@@ -41,6 +47,10 @@ class ConversationRunner:
                 once, across the entire run. Unlike `Runner`, this bounds
                 whole conversations (all turns), not individual turns —
                 see module docstring.
+            progress_callback: optional async callback, awaited once after
+                each turn's (and any summary) `CaseResult` is produced —
+                same contract as `Runner.progress_callback`, see
+                `evalite/runner/runner.py` and `evalite/server/progress.py`.
 
         Raises:
             ValueError: if `adapter` does not implement `AgentAdapter`.
@@ -53,6 +63,20 @@ class ConversationRunner:
         self._adapter = adapter
         self._max_workers = max_workers
         self._semaphore = asyncio.Semaphore(max_workers)
+        self._progress_callback = progress_callback
+
+    async def _emit_progress(self, result: CaseResult) -> None:
+        """Await the progress callback (if any) for one produced CaseResult."""
+        if self._progress_callback is not None:
+            await self._progress_callback(
+                {
+                    "event": "case_completed",
+                    "case_id": result.case_id,
+                    "iteration": result.iteration,
+                    "passed": result.passed,
+                    "score": result.score.value,
+                }
+            )
 
     async def _run_conversation_iteration(
         self, case: ConversationTestCase, iteration: int
@@ -112,17 +136,17 @@ class ConversationRunner:
                 history.append({"role": "assistant", "content": response.content})
                 score = await scorer.score(turn_input, expected, response)
 
-                case_results.append(
-                    CaseResult(
-                        case_id=conv_case_id,
-                        iteration=turn,
-                        input=turn_input,
-                        actual=response.content,
-                        score=score,
-                        passed=score.passed,
-                        duration_ms=duration_ms,
-                    )
+                turn_result = CaseResult(
+                    case_id=conv_case_id,
+                    iteration=turn,
+                    input=turn_input,
+                    actual=response.content,
+                    score=score,
+                    passed=score.passed,
+                    duration_ms=duration_ms,
                 )
+                case_results.append(turn_result)
+                await self._emit_progress(turn_result)
 
                 if accumulator is not None:
                     acc_state = accumulator.update(acc_state, score)
@@ -165,17 +189,17 @@ class ConversationRunner:
 
             if accumulator is not None:
                 final_score = accumulator.finalize(acc_state, total_turns)
-                case_results.append(
-                    CaseResult(
-                        case_id=conv_case_id,
-                        iteration=-1,  # sentinel: summary row, not a real turn
-                        input=case.initial_message,
-                        actual=f"Final accumulated score across {total_turns} turns.",
-                        score=final_score,
-                        passed=final_score.passed,
-                        duration_ms=0.0,
-                    )
+                summary_result = CaseResult(
+                    case_id=conv_case_id,
+                    iteration=-1,  # sentinel: summary row, not a real turn
+                    input=case.initial_message,
+                    actual=f"Final accumulated score across {total_turns} turns.",
+                    score=final_score,
+                    passed=final_score.passed,
+                    duration_ms=0.0,
                 )
+                case_results.append(summary_result)
+                await self._emit_progress(summary_result)
 
         return case_results
 

@@ -13,6 +13,7 @@ the whole test set at any point in time — not per test case.
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 
 from evalite.agent.protocol import AgentAdapter
 from evalite.runner.result import CaseResult, RunResult
@@ -30,6 +31,7 @@ class Runner:
         scorer: Scorer,
         max_workers: int = 10,
         storage: StorageBackend | None = None,
+        progress_callback: Callable[[dict], Awaitable[None]] | None = None,
     ) -> None:
         """
         Args:
@@ -48,6 +50,14 @@ class Runner:
                 is opt-in per ADR-003 — when `None` (the default), `run`
                 behaves exactly as it did in Phase 1: no persistence, and
                 `RunResult.run_id` stays `None`.
+            progress_callback: optional async callback, awaited once after
+                each `CaseResult` is produced, with a
+                `{"event": "case_completed", "case_id", "iteration",
+                "passed", "score"}` dict (see `evalite/server/progress.py`
+                for the full event-shape contract). Used by the API server
+                (Phase 4) to stream live progress over WebSocket; entirely
+                optional and has no effect on `run`'s return value or on
+                existing callers that don't pass it.
 
         Raises:
             ValueError: if `adapter` does not implement `AgentAdapter`.
@@ -62,6 +72,7 @@ class Runner:
         self._max_workers = max_workers
         self._semaphore = asyncio.Semaphore(max_workers)
         self._storage = storage
+        self._progress_callback = progress_callback
 
     async def _run_case_iteration(self, case: TestCase, iteration: int) -> CaseResult:
         """Run a single (case, iteration) unit: send, time, score, wrap result."""
@@ -74,7 +85,7 @@ class Runner:
 
             score = await self._scorer.score(case.input, case.expected.model_dump(), response)
 
-        return CaseResult(
+        result = CaseResult(
             case_id=case.id,
             iteration=iteration,
             input=case.input,
@@ -83,6 +94,19 @@ class Runner:
             passed=score.passed,
             duration_ms=duration_ms,
         )
+
+        if self._progress_callback is not None:
+            await self._progress_callback(
+                {
+                    "event": "case_completed",
+                    "case_id": result.case_id,
+                    "iteration": result.iteration,
+                    "passed": result.passed,
+                    "score": result.score.value,
+                }
+            )
+
+        return result
 
     async def run(self, test_set: TestSet) -> RunResult:
         """Run every case (and iteration) in `test_set`, scoring each response.

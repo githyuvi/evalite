@@ -20,6 +20,7 @@ import webbrowser
 import typer
 
 from evalite.agent.protocol import AgentAdapter
+from evalite.enterprise import EnterpriseConfig
 from evalite.reporter.console import ConsoleReporter
 from evalite.runner.result import RunResult
 from evalite.runner.runner import Runner
@@ -108,6 +109,37 @@ def load_adapter(agent: str) -> AgentAdapter:
     return instance
 
 
+def _build_enterprise_config(
+    proxy: str | None,
+    ca_bundle: str | None,
+    client_cert: str | None,
+    client_key: str | None,
+) -> EnterpriseConfig:
+    """Merges `--proxy`/`--ca-bundle`/`--client-cert`/`--client-key` with env vars.
+
+    Starts from `EnterpriseConfig.from_env()` (reading `HTTP_PROXY`,
+    `HTTPS_PROXY`, `NO_PROXY`, `SSL_CA_BUNDLE`, `SSL_CLIENT_CERT`,
+    `SSL_CLIENT_KEY`), then lets each CLI flag override its corresponding
+    field when given. There is no `--https-proxy` flag, so `https_proxy`
+    is env-var-only; `--proxy` only overrides `http_proxy` and is not
+    also applied to `https_proxy`, keeping the mapping one-flag-to-one-field
+    rather than having `--proxy` implicitly affect two fields at once.
+
+    Extracted as a standalone helper (rather than inlined in each command)
+    so the merge logic can be unit-tested directly without mocking Typer
+    command internals.
+    """
+    env_config = EnterpriseConfig.from_env()
+    return EnterpriseConfig(
+        http_proxy=proxy or env_config.http_proxy,
+        https_proxy=env_config.https_proxy,
+        no_proxy=env_config.no_proxy,
+        ssl_ca_bundle=ca_bundle or env_config.ssl_ca_bundle,
+        ssl_client_cert=client_cert or env_config.ssl_client_cert,
+        ssl_client_key=client_key or env_config.ssl_client_key,
+    )
+
+
 def _parse_db_url(db: str) -> str:
     """Extract a filesystem path from a `sqlite:///` connection string.
 
@@ -156,13 +188,22 @@ def run(
             "If provided, persists the run."
         ),
     ),
+    proxy: str | None = typer.Option(None, "--proxy", help="HTTP/HTTPS proxy URL"),
+    ca_bundle: str | None = typer.Option(None, "--ca-bundle", help="Path to custom CA bundle"),
+    client_cert: str | None = typer.Option(None, "--client-cert", help="Path to client certificate"),
+    client_key: str | None = typer.Option(None, "--client-key", help="Path to client key"),
 ) -> None:
-    """Run a test set against an agent and report results."""
+    """Run a test set against an agent and report results.
+
+    --proxy/--ca-bundle/--client-cert/--client-key configure an EnterpriseConfig for future use by HTTP-calling components (LLM judge providers, etc.) — currently these components must still be constructed and configured directly in user code; this CLI flow does not yet auto-wire them.
+    """
     try:
         test_set_obj = load_test_set(test_set)
     except (FileNotFoundError, ValueError) as e:
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(code=1)
+
+    enterprise_config = _build_enterprise_config(proxy, ca_bundle, client_cert, client_key)
 
     adapter = load_adapter(agent)
 
@@ -216,6 +257,10 @@ def serve(
         "--open",
         help="Open the dashboard in your default browser after the server starts",
     ),
+    proxy: str | None = typer.Option(None, "--proxy", help="HTTP/HTTPS proxy URL"),
+    ca_bundle: str | None = typer.Option(None, "--ca-bundle", help="Path to custom CA bundle"),
+    client_cert: str | None = typer.Option(None, "--client-cert", help="Path to client certificate"),
+    client_key: str | None = typer.Option(None, "--client-key", help="Path to client key"),
 ) -> None:
     """Start the evalite API server (evalite\[server] extra required).
 
@@ -233,6 +278,8 @@ def serve(
     there is no such fixed import target — passing --reload prints a
     warning and is otherwise ignored rather than silently doing nothing
     unexplained.
+
+    --proxy/--ca-bundle/--client-cert/--client-key configure an EnterpriseConfig for future use by HTTP-calling components (LLM judge providers, etc.) — currently these components must still be constructed and configured directly in user code; this CLI flow does not yet auto-wire them.
     """
     if not os.environ.get("EVALITE_API_KEY"):
         typer.echo(
@@ -240,6 +287,8 @@ def serve(
             err=True,
         )
         raise typer.Exit(code=1)
+
+    enterprise_config = _build_enterprise_config(proxy, ca_bundle, client_cert, client_key)
 
     try:
         import uvicorn

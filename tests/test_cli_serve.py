@@ -88,3 +88,25 @@ def test_serve_without_server_extra_exits_1(tmp_path, monkeypatch):
 
     assert result.exit_code == 1
     assert "[server]" in result.output
+
+
+def test_serve_with_enterprise_flags_does_not_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVALITE_API_KEY", "test-key")
+    db_path = tmp_path / "serve.db"
+
+    with patch("uvicorn.run") as mock_run:
+        result = runner.invoke(
+            app,
+            [
+                "serve",
+                "--db",
+                f"sqlite:///{db_path}",
+                "--proxy",
+                "http://proxy.corp.com:8080",
+                "--ca-bundle",
+                "/path/to/ca.pem",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    mock_run.assert_called_once()

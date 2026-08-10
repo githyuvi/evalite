@@ -73,3 +73,40 @@ def test_run_output_json_is_valid_json(tmp_path):
     parsed = json.loads(result.output)
     assert parsed["test_set_name"] == "echo_test_set"
     assert parsed["passed"] == 1
+
+
+def test_run_with_enterprise_flags_does_not_error(tmp_path):
+    test_set_path = _write_test_set(tmp_path, expected_contains="42")
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            test_set_path,
+            "--agent",
+            ECHO_AGENT,
+            "--proxy",
+            "http://proxy.corp.com:8080",
+            "--ca-bundle",
+            "/path/to/ca.pem",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+
+
+def test_build_enterprise_config_cli_flags_win_over_env(monkeypatch):
+    from evalite.cli import _build_enterprise_config
+
+    monkeypatch.setenv("HTTP_PROXY", "http://env-proxy:1")
+    monkeypatch.setenv("SSL_CA_BUNDLE", "/env/ca.pem")
+
+    config = _build_enterprise_config(
+        proxy="http://cli-proxy:2",
+        ca_bundle="/cli/ca.pem",
+        client_cert=None,
+        client_key=None,
+    )
+
+    assert config.http_proxy == "http://cli-proxy:2"
+    assert config.ssl_ca_bundle == "/cli/ca.pem"

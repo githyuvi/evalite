@@ -145,3 +145,46 @@ def test_list_runs_empty_by_default(test_client: TestClient) -> None:
 def test_routes_require_api_key(test_client: TestClient) -> None:
     resp = test_client.get("/api/v1/runs")
     assert resp.status_code == 401
+
+
+def test_list_runs_returns_null_test_set_name_for_in_flight_run(
+    test_client: TestClient,
+) -> None:
+    # Regression test for a type mismatch: `RunSummary.test_set_name` was
+    # declared `str` (non-nullable) but an in-flight run's registry entry
+    # (`app.state.runs[run_id]`) holds `test_set_name=None` from the moment
+    # `POST /api/v1/runs` registers it until the background task finishes
+    # loading the test set (see `evalite/server/routes/runs.py`,
+    # `start_run` and `_execute_run`). Validating that shape against the
+    # old `RunSummary` would have raised a 500 (Pydantic serialization
+    # error) the instant `list_runs` used it as a `response_model` — which
+    # is exactly why it previously wasn't wired in.
+    #
+    # We seed the registry entry directly rather than racing a real
+    # background task: in `_execute_run`, `entry["test_set_name"]` and
+    # `entry["status"] = "running"` are set together with no `await` in
+    # between, so externally the `test_set_name=None` state only exists
+    # while `status == "started"` — a window that (for this repo's
+    # near-instant echo-agent fixture) closes before a synchronous
+    # `TestClient` call can observe it, since the background task
+    # reliably runs to completion within the same event-loop turn as the
+    # `POST` response. Seeding the exact registry shape documented in
+    # `runs.py` exercises the identical code path in `list_runs`
+    # deterministically, without a flaky timing dependency.
+    run_id = "in-flight-run-id"
+    test_client.app.state.runs[run_id] = {
+        "run_id": run_id,
+        "test_set_name": None,
+        "status": "started",
+        "timestamp": "2026-01-01T00:00:00+00:00",
+        "result": None,
+        "error": None,
+    }
+
+    resp = test_client.get("/api/v1/runs", headers=HEADERS)
+
+    assert resp.status_code == 200
+    matching = [r for r in resp.json()["runs"] if r["run_id"] == run_id]
+    assert len(matching) == 1
+    assert matching[0]["status"] == "started"
+    assert matching[0]["test_set_name"] is None

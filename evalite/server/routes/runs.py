@@ -28,13 +28,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 from evalite.agent.protocol import AgentAdapter
 from evalite.runner.result import RunResult
 from evalite.runner.runner import Runner
 from evalite.scorer.default import DefaultScorer
 from evalite.server.auth import require_api_key
-from evalite.server.models import StartRunRequest
+from evalite.server.models import RunSummary, StartRunRequest
 from evalite.testcase.loader import load_test_set
 
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
@@ -172,25 +173,31 @@ async def start_run(body: StartRunRequest, request: Request) -> dict:
     return {"run_id": run_id, "status": "started"}
 
 
-@router.get("/runs")
-async def list_runs(request: Request, limit: int = 20, offset: int = 0) -> dict:
+class RunListResponse(BaseModel):
+    """Response body of `GET /api/v1/runs`: `{"runs": [RunSummary, ...]}`."""
+
+    runs: list[RunSummary]
+
+
+@router.get("/runs", response_model=RunListResponse)
+async def list_runs(request: Request, limit: int = 20, offset: int = 0) -> RunListResponse:
     """List runs known to this server process, most recent first."""
     entries = sorted(
         request.app.state.runs.values(), key=lambda e: e["timestamp"], reverse=True
     )
     page = entries[offset : offset + limit]
     summaries = [
-        {
-            "run_id": e["run_id"],
-            "test_set_name": e["result"].test_set_name if e["result"] else e["test_set_name"],
-            "passed": e["result"].passed if e["result"] else 0,
-            "failed": e["result"].failed if e["result"] else 0,
-            "timestamp": e["timestamp"],
-            "status": e["status"],
-        }
+        RunSummary(
+            run_id=e["run_id"],
+            test_set_name=e["result"].test_set_name if e["result"] else e["test_set_name"],
+            passed=e["result"].passed if e["result"] else 0,
+            failed=e["result"].failed if e["result"] else 0,
+            timestamp=e["timestamp"],
+            status=e["status"],
+        )
         for e in page
     ]
-    return {"runs": summaries}
+    return RunListResponse(runs=summaries)
 
 
 @router.get("/runs/{run_id}")

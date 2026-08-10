@@ -38,7 +38,7 @@ class RunSummary(BaseModel):
     """
 
     run_id: str
-    test_set_name: str
+    test_set_name: str | None
     passed: int
     failed: int
     timestamp: str

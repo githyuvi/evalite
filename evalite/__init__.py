@@ -1,3 +1,5 @@
+import logging
+
 from evalite.agent.protocol import AgentAdapter, AgentResponse
 from evalite.agent.sync_adapter import sync_adapter
 from evalite.testcase.models import TestCase, TestSet, ExpectedOutput
@@ -32,6 +34,7 @@ from evalite.scorer.tool_call import ToolCallScorer
 from evalite.scorer.semantic import SemanticSimilarityScorer
 from evalite.testcase.conversation import ConversationTestCase, ConversationDriver
 from evalite.runner.conversation_runner import ConversationRunner
+from evalite.enterprise.masker import SecretMasker
 
 # Storage classes (`StorageBackend`, `SqliteStorage`, `PostgresStorage`) are
 # intentionally NOT re-exported here. Import them from `evalite.storage.*`
@@ -44,6 +47,18 @@ from evalite.runner.conversation_runner import ConversationRunner
 # NOT re-exported here. Import it from `evalite.extras.litellm` directly —
 # `evalite/extras/` is a separate opt-in namespace for power-user providers
 # with heavier optional dependencies (ADR-006).
+
+
+def _install_masker() -> None:
+    """Adds a SecretMasker filter to the evalite logger, so log output
+    never leaks secrets like API keys or Bearer tokens.
+    """
+    logger = logging.getLogger("evalite")
+    logger.addFilter(SecretMasker())
+
+
+_install_masker()
+
 __all__ = [
     "AgentAdapter", "AgentResponse", "sync_adapter",
     "TestCase", "TestSet", "ExpectedOutput", "load_test_set",

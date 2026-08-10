@@ -1,17 +1,18 @@
 """FastAPI app factory for the evalite API server.
 
 `create_app` wires up the shared plumbing (API key auth, app-scoped
-storage/progress-bus state) that every route depends on. FastAPI itself
-is only ever imported from within `evalite/server/` — nothing reachable
-from a bare `import evalite` touches this package, so the core install
-(no `[server]` extra) never pulls in FastAPI. See `evalite/cli.py` for
-the same lazy-import principle applied to optional storage deps.
+storage/progress-bus/run-registry state) that every route depends on.
+FastAPI itself is only ever imported from within `evalite/server/` —
+nothing reachable from a bare `import evalite` touches this package, so
+the core install (no `[server]` extra) never pulls in FastAPI. See
+`evalite/cli.py` for the same lazy-import principle applied to optional
+storage deps.
 """
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 
-from evalite.server.auth import require_api_key
 from evalite.server.progress import ProgressBus
+from evalite.server.routes import runs, ws
 from evalite.storage.base import StorageBackend
 
 
@@ -19,26 +20,38 @@ def create_app(storage: StorageBackend) -> FastAPI:
     """Return a configured FastAPI app. Called by `evalite serve`.
 
     Args:
-        storage: the `StorageBackend` route handlers will read/write runs
-            through, exposed to them via `request.app.state.storage`.
+        storage: the `StorageBackend` route handlers use for best-effort
+            durability once a run completes, exposed to them via
+            `request.app.state.storage`. Note: `request.app.state.runs`
+            (an in-memory registry), not `storage`, is this API's actual
+            source of truth for `run_id` identity/status/results — see
+            `evalite/server/routes/runs.py`'s module docstring for why.
 
     Returns:
-        A `FastAPI` app with the API key dependency applied globally
-        (`Depends(require_api_key)` at the app level, so it gates every
-        route registered on this app — including ones added by later
-        tasks — without each route needing to redeclare it) and
-        `app.state.storage` / `app.state.progress_bus` populated for
-        route handlers to use.
+        A `FastAPI` app with `app.state.storage` / `app.state.progress_bus`
+        / `app.state.runs` populated for route handlers to use, and the
+        REST + WebSocket routers registered.
+
+        API key auth (rule 15) is applied per-router rather than at the
+        app level: `routes.runs.router` declares
+        `Depends(require_api_key)` itself (standard FastAPI `Security`,
+        which only supports the HTTP `Request` shape). The WebSocket
+        route in `routes.ws` cannot reuse that same dependency — in this
+        FastAPI version, `Security(APIKeyHeader(...))` raises
+        `TypeError: APIKeyHeader.__call__() missing 1 required
+        positional argument: 'request'` when invoked for a WebSocket
+        connection instead of an HTTP request, since the scheme's
+        `__call__` is typed against `Request`, not `WebSocket`. So
+        `routes.ws` does its own manual `X-API-Key` header check before
+        accepting the connection (see that module for details) — both
+        paths validate against the same `EVALITE_API_KEY` env var.
     """
-    app = FastAPI(dependencies=[Depends(require_api_key)])
+    app = FastAPI()
     app.state.storage = storage
     app.state.progress_bus = ProgressBus()
+    app.state.runs = {}
 
-    # EXTENSION POINT for later tasks: routers are registered here once
-    # they exist (evalite/server/routes/runs.py, evalite/server/routes/ws.py) —
-    # not yet built as of this task. A later task will add:
-    #     from evalite.server.routes import runs, ws
-    #     app.include_router(runs.router)
-    #     app.include_router(ws.router)
+    app.include_router(runs.router)
+    app.include_router(ws.router)
 
     return app

@@ -9,12 +9,19 @@ env var change without a restart (not that we recommend rotating it that
 way, but nothing here prevents it).
 
 Per the Phase 4 plan (rule 15), every REST and WebSocket endpoint must
-validate this key. This dependency is wired in as an app-level dependency
-in `evalite/server/app.py` so individual routes never need to redeclare
-it. Whether the *server process itself* refuses to start when
+validate this key. REST routes use this dependency directly, declared on
+`routes.runs.router` (`Depends(require_api_key)`) rather than at the
+FastAPI app level — see `evalite/server/app.py`'s docstring for why (in
+short: `Security(APIKeyHeader(...))` doesn't resolve correctly for
+WebSocket connections in the installed FastAPI version). The WebSocket
+route (`evalite/server/routes/ws.py`) enforces the identical policy
+against the same env var via a manual header check instead of reusing
+this function directly, for that same reason.
+
+Whether the *server process itself* refuses to start when
 `EVALITE_API_KEY` is unset entirely is a separate, CLI-level concern
-(`evalite serve`, a later task) — this dependency only ever checks the
-env var at request time.
+(`evalite serve`) — this dependency only ever checks the env var at
+request time.
 """
 
 import os

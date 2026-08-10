@@ -157,7 +157,17 @@ async def start_run(body: StartRunRequest, request: Request) -> dict:
         "error": None,
     }
 
-    asyncio.create_task(_execute_run(request.app.state, run_id, body))
+    # asyncio only keeps a *weak* reference to a task created via
+    # create_task — a task with no other strong reference can be
+    # garbage-collected mid-run with no error surfaced, silently
+    # abandoning the run (registry stuck at "running", WebSocket
+    # subscriber hangs forever waiting for a terminal event that never
+    # comes). Retaining it in app.state.background_tasks until it
+    # finishes prevents that.
+    background_tasks = request.app.state.background_tasks
+    task = asyncio.create_task(_execute_run(request.app.state, run_id, body))
+    background_tasks.add(task)
+    task.add_done_callback(background_tasks.discard)
 
     return {"run_id": run_id, "status": "started"}
 

@@ -50,6 +50,11 @@ def create_app(storage: StorageBackend) -> FastAPI:
     app.state.storage = storage
     app.state.progress_bus = ProgressBus()
     app.state.runs = {}
+    # Retains a strong reference to every in-flight run's background task —
+    # see routes/runs.py's start_run for why (asyncio only holds a *weak*
+    # reference to a task via create_task, so a task with no other
+    # reference can be garbage-collected mid-run with no error surfaced).
+    app.state.background_tasks = set()
 
     app.include_router(runs.router)
     app.include_router(ws.router)

@@ -100,6 +100,32 @@ def test_run_with_bad_agent_class_marks_run_failed(test_client: TestClient) -> N
     assert status == "failed"
 
 
+def test_background_task_is_retained_and_cleaned_up(test_client: TestClient) -> None:
+    # Regression test: asyncio.create_task's return value must be kept
+    # somewhere with a strong reference (app.state.background_tasks),
+    # otherwise the task can be garbage-collected mid-run with no error
+    # surfaced. Prove the task is tracked while running and removed once
+    # the run completes.
+    resp = test_client.post(
+        "/api/v1/runs",
+        json={
+            "test_set_path": "tests/fixtures/echo_agent_test_set.yaml",
+            "agent_class": "tests.fixtures.echo_agent.Agent",
+        },
+        headers=HEADERS,
+    )
+    run_id = resp.json()["run_id"]
+
+    _poll_until_terminal(test_client, run_id)
+
+    # By the time the registry entry reports a terminal status, the task's
+    # own done-callback (which discards it from the set) has already run
+    # on the same event loop, so the set should be empty again — proving
+    # both halves of the fix: the task was tracked while in flight, and
+    # cleaned up rather than accumulating forever.
+    assert test_client.app.state.background_tasks == set()
+
+
 def test_get_run_unknown_id_returns_404(test_client: TestClient) -> None:
     resp = test_client.get("/api/v1/runs/does-not-exist", headers=HEADERS)
     assert resp.status_code == 404

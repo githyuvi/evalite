@@ -326,16 +326,58 @@ async def test_progress_callback_receives_event_per_turn_and_summary_row():
     runner = ConversationRunner(adapter=adapter, progress_callback=progress_callback)
     result = await runner.run("progress-set", [case])
 
-    # 2 turn events + 1 summary event, matching the 3 CaseResults produced.
-    assert len(events) == 3 == len(result.case_results)
-    assert {e["event"] for e in events} == {"case_completed"}
-    assert sorted(e["iteration"] for e in events) == [-1, 0, 1]
+    # 2 turn events + 1 summary event, matching the 3 CaseResults produced,
+    # plus a case_started event per turn (2 turns, no case_started for the
+    # summary row — it's not a real turn).
+    completed_events = [e for e in events if e["event"] == "case_completed"]
+    started_events = [e for e in events if e["event"] == "case_started"]
+    assert len(completed_events) == 3 == len(result.case_results)
+    assert len(started_events) == 2
+    assert {e["event"] for e in events} == {"case_started", "case_completed"}
+    assert sorted(e["iteration"] for e in completed_events) == [-1, 0, 1]
+    assert sorted(e["iteration"] for e in started_events) == [0, 1]
     for event, case_result in zip(
-        sorted(events, key=lambda e: e["iteration"]),
+        sorted(completed_events, key=lambda e: e["iteration"]),
         sorted(result.case_results, key=lambda cr: cr.iteration),
     ):
         assert event["passed"] == case_result.passed
         assert event["score"] == case_result.score.value
+
+
+@pytest.mark.asyncio
+async def test_progress_callback_receives_case_started_before_case_completed_per_turn():
+    case = _make_case(turn_inputs=["ok", "thanks"], max_turns=10, scorer=MockScorer())
+    adapter = MockAdapter(response_fn=lambda messages: "match")
+    events: list[dict] = []
+
+    async def progress_callback(event: dict) -> None:
+        events.append(event)
+
+    runner = ConversationRunner(adapter=adapter, progress_callback=progress_callback)
+    await runner.run("progress-order-set", [case])
+
+    # For each turn (iteration >= 0), the case_started event for that
+    # (case_id, iteration) pair must appear before the case_completed event
+    # for the same pair.
+    turn_keys = {
+        (e["case_id"], e["iteration"])
+        for e in events
+        if e["event"] == "case_started"
+    }
+    assert turn_keys == {("case-1", 0), ("case-1", 1), ("case-1", 2)}
+
+    for key in turn_keys:
+        started_index = next(
+            i
+            for i, e in enumerate(events)
+            if e["event"] == "case_started" and (e["case_id"], e["iteration"]) == key
+        )
+        completed_index = next(
+            i
+            for i, e in enumerate(events)
+            if e["event"] == "case_completed" and (e["case_id"], e["iteration"]) == key
+        )
+        assert started_index < completed_index
 
 
 @pytest.mark.asyncio

@@ -50,11 +50,14 @@ class Runner:
                 is opt-in per ADR-003 — when `None` (the default), `run`
                 behaves exactly as it did in Phase 1: no persistence, and
                 `RunResult.run_id` stays `None`.
-            progress_callback: optional async callback, awaited once after
-                each `CaseResult` is produced, with a
-                `{"event": "case_completed", "case_id", "iteration",
-                "passed", "score"}` dict (see `evalite/server/progress.py`
-                for the full event-shape contract). Used by the API server
+            progress_callback: optional async callback, awaited twice per
+                case/iteration unit: once right before `adapter.send` is
+                called, with a `{"event": "case_started", "case_id",
+                "iteration"}` dict, and once after the resulting
+                `CaseResult` is produced, with a `{"event":
+                "case_completed", "case_id", "iteration", "passed",
+                "score"}` dict (see `evalite/server/progress.py` for the
+                full event-shape contract). Used by the API server
                 (Phase 4) to stream live progress over WebSocket; entirely
                 optional and has no effect on `run`'s return value or on
                 existing callers that don't pass it.
@@ -79,6 +82,15 @@ class Runner:
         messages = [{"role": "user", "content": case.input}]
 
         async with self._semaphore:
+            if self._progress_callback is not None:
+                await self._progress_callback(
+                    {
+                        "event": "case_started",
+                        "case_id": case.id,
+                        "iteration": iteration,
+                    }
+                )
+
             start = time.perf_counter()
             response = await self._adapter.send(messages)
             duration_ms = (time.perf_counter() - start) * 1000

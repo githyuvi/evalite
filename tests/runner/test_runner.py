@@ -202,16 +202,52 @@ async def test_progress_callback_receives_one_case_completed_event_per_case():
     test_set = TestSet(name="progress-set", cases=cases)
     result = await runner.run(test_set)
 
-    assert len(events) == 2
-    assert {e["event"] for e in events} == {"case_completed"}
-    assert {e["case_id"] for e in events} == {"case-1", "case-2"}
+    completed_events = [e for e in events if e["event"] == "case_completed"]
+    assert len(completed_events) == 2
+    assert {e["event"] for e in events} == {"case_started", "case_completed"}
+    assert {e["case_id"] for e in completed_events} == {"case-1", "case-2"}
     for event, case_result in zip(
-        sorted(events, key=lambda e: e["case_id"]),
+        sorted(completed_events, key=lambda e: e["case_id"]),
         sorted(result.case_results, key=lambda cr: cr.case_id),
     ):
         assert event["iteration"] == case_result.iteration
         assert event["passed"] == case_result.passed
         assert event["score"] == case_result.score.value
+
+
+@pytest.mark.asyncio
+async def test_progress_callback_receives_case_started_before_case_completed():
+    cases = [_make_case("case-1", "foo"), _make_case("case-2", "bar")]
+    adapter = MockAdapter(response_fn=lambda messages: "foo bar")
+    scorer = MockScorer()
+    events: list[dict] = []
+
+    async def progress_callback(event: dict) -> None:
+        events.append(event)
+
+    runner = Runner(adapter=adapter, scorer=scorer, progress_callback=progress_callback)
+    test_set = TestSet(name="progress-order-set", cases=cases)
+    await runner.run(test_set)
+
+    # One case_started + one case_completed per case, in that relative order.
+    started = [e for e in events if e["event"] == "case_started"]
+    completed = [e for e in events if e["event"] == "case_completed"]
+    assert {(e["case_id"], e["iteration"]) for e in started} == {
+        (e["case_id"], e["iteration"]) for e in completed
+    }
+
+    for key in {(e["case_id"], e["iteration"]) for e in started}:
+        started_index = next(
+            i
+            for i, e in enumerate(events)
+            if e["event"] == "case_started" and (e["case_id"], e["iteration"]) == key
+        )
+        completed_index = next(
+            i
+            for i, e in enumerate(events)
+            if e["event"] == "case_completed" and (e["case_id"], e["iteration"]) == key
+        )
+        assert started_index < completed_index
 
 
 @pytest.mark.asyncio

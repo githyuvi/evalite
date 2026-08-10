@@ -47,10 +47,12 @@ class ConversationRunner:
                 once, across the entire run. Unlike `Runner`, this bounds
                 whole conversations (all turns), not individual turns —
                 see module docstring.
-            progress_callback: optional async callback, awaited once after
-                each turn's (and any summary) `CaseResult` is produced —
-                same contract as `Runner.progress_callback`, see
-                `evalite/runner/runner.py` and `evalite/server/progress.py`.
+            progress_callback: optional async callback, awaited once before
+                each turn (a `case_started` event) and once after each
+                turn's (and any summary) `CaseResult` is produced (a
+                `case_completed` event) — same contract as
+                `Runner.progress_callback`, see `evalite/runner/runner.py`
+                and `evalite/server/progress.py`.
 
         Raises:
             ValueError: if `adapter` does not implement `AgentAdapter`.
@@ -75,6 +77,17 @@ class ConversationRunner:
                     "iteration": result.iteration,
                     "passed": result.passed,
                     "score": result.score.value,
+                }
+            )
+
+    async def _emit_turn_started(self, case_id: str, turn: int) -> None:
+        """Await the progress callback (if any) for the start of one turn."""
+        if self._progress_callback is not None:
+            await self._progress_callback(
+                {
+                    "event": "case_started",
+                    "case_id": case_id,
+                    "iteration": turn,
                 }
             )
 
@@ -118,6 +131,8 @@ class ConversationRunner:
             turn_input = case.initial_message
 
             while turn < case.max_turns:
+                await self._emit_turn_started(conv_case_id, turn)
+
                 send_coro = self._adapter.send(history)
                 if case.timeout_per_turn is not None:
                     start = time.perf_counter()

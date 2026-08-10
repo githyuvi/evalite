@@ -188,3 +188,50 @@ def test_list_runs_returns_null_test_set_name_for_in_flight_run(
     assert len(matching) == 1
     assert matching[0]["status"] == "started"
     assert matching[0]["test_set_name"] is None
+
+
+def test_pagination_on_list_runs(test_client: TestClient) -> None:
+    # Test that limit and offset query parameters correctly slice and order
+    # results by timestamp (most recent first).
+    run_ids = []
+
+    # Start 3 runs sequentially, polling each to completion before the next,
+    # to ensure deterministic timestamp ordering (most recently started run
+    # should sort first).
+    for i in range(3):
+        resp = test_client.post(
+            "/api/v1/runs",
+            json={
+                "test_set_path": "tests/fixtures/echo_agent_test_set.yaml",
+                "agent_class": "tests.fixtures.echo_agent.Agent",
+            },
+            headers=HEADERS,
+        )
+        run_id = resp.json()["run_id"]
+        run_ids.append(run_id)
+        _poll_until_terminal(test_client, run_id)
+
+    # GET /api/v1/runs?limit=2 should return the 2 most recent runs
+    # (run_ids[2] and run_ids[1], in that order, since run_ids[2] was
+    # started last and thus has the most recent timestamp).
+    resp = test_client.get("/api/v1/runs?limit=2", headers=HEADERS)
+    assert resp.status_code == 200
+    page1 = resp.json()["runs"]
+    assert len(page1) == 2
+    assert page1[0]["run_id"] == run_ids[2]
+    assert page1[1]["run_id"] == run_ids[1]
+
+    # GET /api/v1/runs?limit=2&offset=2 should return the oldest run
+    # (run_ids[0]), since offset=2 skips the first 2 (most recent) and
+    # limit=2 allows up to 2, but only 1 remains.
+    resp = test_client.get("/api/v1/runs?limit=2&offset=2", headers=HEADERS)
+    assert resp.status_code == 200
+    page2 = resp.json()["runs"]
+    assert len(page2) == 1
+    assert page2[0]["run_id"] == run_ids[0]
+
+    # Verify the two pages together account for all 3 run_ids exactly once.
+    page1_ids = {r["run_id"] for r in page1}
+    page2_ids = {r["run_id"] for r in page2}
+    assert page1_ids.isdisjoint(page2_ids)
+    assert page1_ids | page2_ids == set(run_ids)

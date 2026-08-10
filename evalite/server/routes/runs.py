@@ -67,7 +67,7 @@ def _load_agent_class(agent_class: str) -> AgentAdapter:
     except Exception as e:
         raise HTTPException(
             status_code=422, detail=f"Failed to load agent_class '{agent_class}': {e}"
-        )
+        ) from e
 
     if not isinstance(instance, AgentAdapter):
         raise HTTPException(
@@ -130,14 +130,11 @@ async def _execute_run(app_state: Any, run_id: str, body: StartRunRequest) -> No
                 "pass_rate": result.pass_rate,
             },
         )
-    except HTTPException as e:
-        entry["status"] = "failed"
-        entry["error"] = str(e.detail)
-        await bus.publish(run_id, {"event": "run_failed", "run_id": run_id, "error": str(e.detail)})
     except Exception as e:
+        error = str(e.detail) if isinstance(e, HTTPException) else str(e)
         entry["status"] = "failed"
-        entry["error"] = str(e)
-        await bus.publish(run_id, {"event": "run_failed", "run_id": run_id, "error": str(e)})
+        entry["error"] = error
+        await bus.publish(run_id, {"event": "run_failed", "run_id": run_id, "error": error})
 
 
 @router.post("/runs", status_code=202)

@@ -211,7 +211,7 @@ def serve(
         help="Enable uvicorn auto-reload (development only; not supported here, see NOTE below)",
     ),
 ) -> None:
-    """Start the evalite API server (evalite[server] extra required).
+    """Start the evalite API server (evalite\[server] extra required).
 
     Requires the `EVALITE_API_KEY` environment variable to be set — the
     server refuses to start otherwise (rule 15's "fail loud" requirement;

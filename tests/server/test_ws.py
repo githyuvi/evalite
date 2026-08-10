@@ -89,3 +89,63 @@ def test_ws_unset_env_var_closes_with_4401_regardless_of_key(test_client: TestCl
             ws.receive_json()
 
     assert exc_info.value.code == UNAUTHORIZED_CLOSE_CODE
+
+
+def test_ws_accepts_api_key_query_param_with_no_header(test_client: TestClient) -> None:
+    # Browser `WebSocket` clients can't set custom headers, so `evalite-ui`
+    # authenticates via `?api_key=...` instead of `X-API-Key`.
+    run_id = _start_run(test_client)
+
+    events = []
+    with test_client.websocket_connect(
+        f"/ws/v1/runs/{run_id}?api_key={TEST_API_KEY}"
+    ) as ws:
+        while True:
+            event = ws.receive_json()
+            events.append(event)
+            if event["event"] == "run_completed":
+                break
+
+    assert events[-1]["event"] == "run_completed"
+    assert events[-1]["run_id"] == run_id
+
+
+def test_ws_wrong_api_key_query_param_closes_with_4401(test_client: TestClient) -> None:
+    run_id = _start_run(test_client)
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with test_client.websocket_connect(
+            f"/ws/v1/runs/{run_id}?api_key=wrong-key"
+        ) as ws:
+            ws.receive_json()
+
+    assert exc_info.value.code == UNAUTHORIZED_CLOSE_CODE
+
+
+def test_ws_header_takes_precedence_over_query_param(test_client: TestClient) -> None:
+    # Documented tie-break: when both are present, the `X-API-Key` header
+    # wins over the `api_key` query param.
+    run_id = _start_run(test_client)
+
+    # Correct header + mismatched query param -> succeeds (header wins).
+    events = []
+    with test_client.websocket_connect(
+        f"/ws/v1/runs/{run_id}?api_key=wrong-key", headers=HEADERS
+    ) as ws:
+        while True:
+            event = ws.receive_json()
+            events.append(event)
+            if event["event"] == "run_completed":
+                break
+    assert events[-1]["event"] == "run_completed"
+
+    # Wrong header + correct query param -> fails (header still wins).
+    run_id_2 = _start_run(test_client)
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with test_client.websocket_connect(
+            f"/ws/v1/runs/{run_id_2}?api_key={TEST_API_KEY}",
+            headers={"X-API-Key": "wrong-key"},
+        ) as ws:
+            ws.receive_json()
+
+    assert exc_info.value.code == UNAUTHORIZED_CLOSE_CODE

@@ -18,6 +18,12 @@ not `WebSocket`. Reading `websocket.headers` directly and comparing
 against `EVALITE_API_KEY` avoids that entirely and validates against the
 exact same env var `require_api_key` uses.
 
+The API key is also accepted as an `api_key` query parameter, since a
+browser's native `WebSocket` constructor cannot set custom request
+headers — this is the only way `evalite-ui` can authenticate its WS
+connection; it's a query-param API key over HTTPS, an accepted if
+imperfect tradeoff scoped to this WS route only.
+
 If a client connects to a `run_id` that was never started via
 `POST /api/v1/runs`, the connection is closed immediately with code 4404
 rather than left open waiting indefinitely for events that will never
@@ -37,7 +43,12 @@ UNAUTHORIZED_CLOSE_CODE = 4401
 @router.websocket("/ws/v1/runs/{run_id}")
 async def stream_run_progress(websocket: WebSocket, run_id: str) -> None:
     expected_key = os.environ.get("EVALITE_API_KEY")
-    sent_key = websocket.headers.get("x-api-key")
+    header_key = websocket.headers.get("x-api-key")
+    query_key = websocket.query_params.get("api_key")
+    # If both are present, the header wins (arbitrary but deterministic
+    # tie-break — the query param exists only as a fallback for browser
+    # clients that cannot set the header at all).
+    sent_key = header_key if header_key is not None else query_key
     if expected_key is None or sent_key != expected_key:
         await websocket.close(code=UNAUTHORIZED_CLOSE_CODE, reason="Invalid or missing API key")
         return

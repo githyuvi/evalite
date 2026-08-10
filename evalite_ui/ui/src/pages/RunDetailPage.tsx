@@ -3,18 +3,7 @@ import { useParams } from "react-router-dom";
 import { getRun } from "../api/client";
 import type { CaseResult, RunResult } from "../api/types";
 import CaseResultRow from "../components/CaseResultRow";
-
-/**
- * Formats a millisecond duration as e.g. "123ms" or "1.2s".
- *
- * Duplicated from `CaseResultRow`'s local `formatDuration` (not exported
- * from that module) to keep the same formatting convention for the
- * run-level `duration_ms` header stat.
- */
-function formatDuration(durationMs: number): string {
-  if (durationMs < 1000) return `${Math.round(durationMs)}ms`;
-  return `${(durationMs / 1000).toFixed(1)}s`;
-}
+import { formatDuration } from "../lib/utils";
 
 type PassFilter = "all" | "passed" | "failed";
 

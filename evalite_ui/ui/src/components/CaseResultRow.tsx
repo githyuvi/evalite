@@ -1,15 +1,10 @@
 import type { CaseResult } from "../api/types";
+import { formatDuration } from "../lib/utils";
 import ScoreBar from "./ScoreBar";
 import StatusBadge from "./StatusBadge";
 
 export interface CaseResultRowProps {
   result: CaseResult;
-}
-
-/** Formats a millisecond duration as e.g. "123ms" or "1.2s". */
-function formatDuration(durationMs: number): string {
-  if (durationMs < 1000) return `${Math.round(durationMs)}ms`;
-  return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
 /** One `<tr>` of a case-results table. Intended for use inside a `<table>`. */

@@ -19,15 +19,23 @@ function computePassRate(passed: number, failed: number): number | null {
 }
 
 /**
- * Maps a `RunStatus` ("started" | "running" | "complete" | "failed") onto the
- * badge statuses StatusBadge supports ("passed" | "failed" | "running" |
- * "started"). "complete" is treated as "passed" (a run-level success state) —
- * an assumption, since StatusBadge has no distinct "complete" visual.
+ * Maps a `RunSummary` onto the badge statuses StatusBadge supports
+ * ("passed" | "failed" | "running" | "started").
+ *
+ * "complete" is not a single badge outcome: a "complete" run can still
+ * have failed cases (e.g. 2 passed / 8 failed), and showing a blanket
+ * green "Passed" pill in that case would contradict the adjacent Pass
+ * Rate/Passed/Failed columns — misleading for the dashboard's
+ * non-engineer audience scanning for failures. So "complete" is derived
+ * from the actual counts: green "passed" only when there are zero
+ * failures, red "failed" otherwise. "started"/"running"/"failed" map to
+ * their existing badge variants unchanged.
  */
 function toBadgeStatus(
   status: RunSummary["status"],
+  failed: number,
 ): "passed" | "failed" | "running" | "started" {
-  if (status === "complete") return "passed";
+  if (status === "complete") return failed === 0 ? "passed" : "failed";
   return status;
 }
 
@@ -87,7 +95,7 @@ function RunsTable({ runs, onRowClick }: RunsTableProps) {
                 {new Date(run.timestamp).toLocaleString()}
               </td>
               <td className="px-4 py-2">
-                <StatusBadge status={toBadgeStatus(run.status)} />
+                <StatusBadge status={toBadgeStatus(run.status, run.failed)} />
               </td>
             </tr>
           );

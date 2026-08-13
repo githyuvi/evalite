@@ -17,9 +17,9 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
-    "pydantic>=2.0",
+    "pydantic>=2.4",
     "pyyaml>=6.0",
-    "typer>=0.12",
+    "typer>=0.13",
     "httpx>=0.27",
 ]
 
@@ -42,6 +42,6 @@ python_classes = ["NoMatchForAnyClass_*"]
 postgres = ["asyncpg>=0.29"]
 storage = ["aiosqlite>=0.20", "sqlalchemy[asyncio]>=2.0", "alembic>=1.13"]
 dev = ["pytest", "pytest-asyncio", "pytest-cov", "aiosqlite>=0.20", "sqlalchemy[asyncio]>=2.0"]
-semantic = ["sentence-transformers>=2.0"]
+semantic = ["sentence-transformers>=2.3"]
 litellm = ["litellm>=1.0"]
 server = ["fastapi>=0.111", "uvicorn>=0.29", "websockets>=12.0"]

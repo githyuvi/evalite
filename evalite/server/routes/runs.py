@@ -24,7 +24,7 @@ import asyncio
 import importlib
 import os
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -150,7 +150,7 @@ async def start_run(body: StartRunRequest, request: Request) -> dict:
         "run_id": run_id,
         "test_set_name": None,
         "status": "started",
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "result": None,
         "error": None,
     }

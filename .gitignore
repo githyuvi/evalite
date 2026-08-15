@@ -6,5 +6,3 @@ __pycache__/
 *.db
 build/
 dist/
-evalite_ui/ui/node_modules/
-evalite_ui/ui/dist/

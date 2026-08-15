@@ -20,8 +20,8 @@ exact same env var `require_api_key` uses.
 
 The API key is also accepted as an `api_key` query parameter, since a
 browser's native `WebSocket` constructor cannot set custom request
-headers — this is the only way `evalite-ui` can authenticate its WS
-connection; it's a query-param API key over HTTPS, an accepted if
+headers — this is the only way a browser-based client can authenticate
+its WS connection; it's a query-param API key over HTTPS, an accepted if
 imperfect tradeoff scoped to this WS route only.
 
 If a client connects to a `run_id` that was never started via

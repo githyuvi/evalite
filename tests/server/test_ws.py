@@ -92,8 +92,9 @@ def test_ws_unset_env_var_closes_with_4401_regardless_of_key(test_client: TestCl
 
 
 def test_ws_accepts_api_key_query_param_with_no_header(test_client: TestClient) -> None:
-    # Browser `WebSocket` clients can't set custom headers, so `evalite-ui`
-    # authenticates via `?api_key=...` instead of `X-API-Key`.
+    # Browser `WebSocket` clients can't set custom headers, so a
+    # browser-based client authenticates via `?api_key=...` instead of
+    # `X-API-Key`.
     run_id = _start_run(test_client)
 
     events = []

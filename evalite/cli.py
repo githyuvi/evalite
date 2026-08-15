@@ -255,7 +255,7 @@ def serve(
     open_browser: bool = typer.Option(
         False,
         "--open",
-        help="Open the dashboard in your default browser after the server starts",
+        help="Open the server URL in your default browser after it starts",
     ),
     proxy: str | None = typer.Option(None, "--proxy", help="HTTP/HTTPS proxy URL"),
     ca_bundle: str | None = typer.Option(None, "--ca-bundle", help="Path to custom CA bundle"),
@@ -268,8 +268,6 @@ def serve(
     server refuses to start otherwise (rule 15's "fail loud" requirement;
     the per-request 401 check in `evalite.server.auth.require_api_key`
     is a separate, request-time enforcement of the same rule).
-
-    The dashboard UI requires `pip install evalite-ui` to render at the server's URL; without it, the browser will show only the JSON API.
 
     NOTE on --reload: uvicorn's auto-reload mechanism re-imports a fixed
     "module:app" string in a subprocess, which requires a module-level

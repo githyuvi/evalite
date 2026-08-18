@@ -111,6 +111,12 @@ The exit code reflects pass/fail, so this drops straight into CI.
   redaction in logs, for running evalite in regulated or enterprise
   network environments.
 
+## Examples
+
+See [evalite-demos](https://github.com/githyuvi/evalite-demos) for full
+example applications built with evalite: an agent under test, an eval
+suite scored against it, and a viewer for the results.
+
 ## Documentation
 
 See the [docs folder](https://github.com/githyuvi/evalite/tree/main/docs):

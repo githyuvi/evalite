@@ -24,6 +24,8 @@ pytest
 - Add or update tests for any behavior change.
 - Match the existing code style; there's no separate style guide beyond
   what's already in the codebase.
+- `main` and `develop` are protected: changes land through a reviewed,
+  approved pull request, not a direct push.
 
 ## Reporting issues
 
